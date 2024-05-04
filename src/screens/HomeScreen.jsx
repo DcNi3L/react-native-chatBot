@@ -6,77 +6,47 @@ import {
   Image,
   ScrollView,
   TouchableOpacity,
-  Platform,
-  PermissionsAndroid,
+  Alert,
 } from 'react-native';
-import React, {useEffect, useState} from 'react';
+import React, {useEffect, useRef, useState} from 'react';
 import {
   widthPercentageToDP as wp,
   heightPercentageToDP as hp,
 } from 'react-native-responsive-screen';
 import Features from '../components/Features';
-import {dummyMessages} from '../constants';
+// import {dummyMessages} from '../constants';
 import Voice from '@react-native-community/voice';
+import Tts from 'react-native-tts';
+import {apiCall} from '../api/OpenAI';
 
 export default function HomeScreen() {
-  const [messages, setMessages] = useState(dummyMessages);
+  const [messages, setMessages] = useState([]);
   const [recording, setRecording] = useState(false);
-  const [speaking, setSpeaking] = useState(true);
+  const [speaking, setSpeaking] = useState(false);
   const [result, setResult] = useState('');
-
-  useEffect(() => {
-    const initVoice = async () => {
-      try {
-        if (Platform.OS === 'android') {
-          const granted = await PermissionsAndroid.request(
-            PermissionsAndroid.PERMISSIONS.RECORD_AUDIO,
-            {
-              title: 'Record Audio Permission',
-              message: 'App needs access to your microphone to record audio',
-              buttonNeutral: 'Ask Me Later',
-              buttonNegative: 'Cancel',
-              buttonPositive: 'OK',
-            },
-          );
-          if (granted !== PermissionsAndroid.RESULTS.GRANTED) {
-            console.log('Record audio permission denied');
-            return;
-          }
-        }
-
-        await Voice.isAvailable();
-        Voice.onSpeechStart = speechStartHandler;
-        Voice.onSpeechEnd = speechEndHandler;
-        Voice.onSpeechResults = speechResultsHandler;
-        Voice.onSpeechError = speechErrorHandler;
-      } catch (error) {
-        console.log('Voice initialization error:', error);
-      }
-    };
-
-    initVoice();
-
-    return () => {
-      Voice.removeAllListeners();
-    };
-  }, []);
+  const [loading, setLoading] = useState(false);
+  const ScrollViewRef = useRef();
 
   //handlers
   const speechStartHandler = e => {
     console.log('speech start handler: ', e);
   };
 
+  const speechResultsHandler = e => {
+    console.log('voice event:', e.value);
+    const text = e.value[0];
+    setResult(text);
+    fetchResponse(text);
+  };
+
   const speechEndHandler = e => {
     setRecording(false);
     console.log('speech end handler: ', e);
-  };
-
-  const speechResultsHandler = e => {
-    console.log('voice event:', e);
     const text = e.value[0];
     setResult(text);
   };
-  console.log('result',result);
+
+  // console.log('result',result);
 
   const speechErrorHandler = e => {
     console.log('speech error handler: ', e);
@@ -85,12 +55,14 @@ export default function HomeScreen() {
   //functions for buttons
   const clear = () => {
     setMessages([]);
+    Tts.stop();
   };
 
   const startRecording = async () => {
     setRecording(true);
+    Tts.stop();
     try {
-      await Voice.start('ru-RU', 'en-US');
+      await Voice.start('en-US');
     } catch (error) {
       console.log('voice recording error: ', error.message);
     }
@@ -100,19 +72,88 @@ export default function HomeScreen() {
     try {
       await Voice.stop();
       setRecording(false);
+      //fetching responce from openai
     } catch (error) {
       console.log('voice recording error: ', error.message);
     }
   };
 
+  const fetchResponse = text => {
+    console.log('result from api: ', text);
+    if (text.trim().length > 0) {
+      let newMessages = [...messages];
+      newMessages.push({role: 'user', content: text.trim()});
+      setMessages([...newMessages]);
+      updateScrollView();
+      setLoading(true);
+
+      apiCall(text.trim(), newMessages).then(res => {
+        // console.log('Data: ', res);
+        setLoading(false);
+        if (res.success) {
+          setMessages([...res.data]);
+          updateScrollView();
+          setResult('');
+          startTextToSpeech(res.data[res.data.length - 1]);
+        } else {
+          Alert.alert('Error: ', res.msg);
+        }
+      });
+    }
+  };
+
+  const startTextToSpeech = message => {
+    if (!message.content.includes('https')) {
+      setSpeaking(true);
+      Tts.speak(message.content, {
+        androidParams: {
+          KEY_PARAM_PAN: 0.5,
+          KEY_PARAM_VOLUME: 1,
+          KEY_PARAM_STREAM: 'STREAM_VOICE_CALL',
+        },
+      });
+    }
+  };
+
+  const updateScrollView = () => {
+    setTimeout(() => {
+      ScrollViewRef?.current?.scrollToEnd({animated: true});
+    }, 200);
+  };
+
   const stopSpeaking = () => {
+    Tts.stop();
     setSpeaking(false);
   };
 
+  console.log('Result: ', result);
+
+  useEffect(() => {
+    //voice recording
+    Voice.onSpeechStart = speechStartHandler;
+    Voice.onSpeechEnd = speechEndHandler;
+    Voice.onSpeechResults = speechResultsHandler;
+    Voice.onSpeechError = speechErrorHandler;
+
+    //tts
+    Tts.addEventListener('tts-start', event => console.log('start', event));
+    Tts.addEventListener('tts-progress', event =>
+      console.log('progress', event),
+    );
+    Tts.addEventListener('tts-finish', event => {
+      setSpeaking(false);
+      console.log('finish: ', event);
+    });
+    Tts.addEventListener('tts-cancel', event => console.log('cancel', event));
+
+    return () => {
+      Voice.destroy().then(Voice.removeAllListeners);
+    };
+  }, []);
 
   return (
     <View className="flex-1 bg-white py-2 pb-3">
-      <SafeAreaView className="flex-1 flex mx-5">
+      <SafeAreaView className="flex-1 flex mx-5 relative">
         {/*Bot icon*/}
         <View className="flex-row justify-center">
           <Image
@@ -132,6 +173,7 @@ export default function HomeScreen() {
               style={{height: hp(66)}}
               className="bg-neutral-200 rounded-3xl p-4">
               <ScrollView
+                ref={ScrollViewRef}
                 bounces={false}
                 className="space-y-4"
                 showsVerticalScrollIndicator={false}>
@@ -156,7 +198,9 @@ export default function HomeScreen() {
                           key={index}
                           style={{width: wp(70)}}
                           className="bg-emerald-100 rounded-xl rounded-tl-none p-2">
-                          <Text className="text-gray-600">{message.content}</Text>
+                          <Text className="text-gray-600">
+                            {message.content}
+                          </Text>
                         </View>
                       );
                     }
@@ -166,7 +210,9 @@ export default function HomeScreen() {
                         <View
                           style={{width: wp(70)}}
                           className="bg-white rounded-xl rounded-tr-none p-2">
-                          <Text className="text-gray-600">{message.content}</Text>
+                          <Text className="text-gray-600">
+                            {message.content}
+                          </Text>
                         </View>
                       </View>
                     );
@@ -180,8 +226,13 @@ export default function HomeScreen() {
         )}
 
         {/* buttons */}
-        <View className="flex justify-center items-center">
-          {recording ? (
+        <View className="flex absolute bottom-0 left-0 w-full justify-center items-center">
+          {loading ? (
+            <Image
+              source={require('../../assets/images/loading.gif')}
+              style={{height: hp(10), width: hp(10)}}
+            />
+          ) : recording ? (
             <TouchableOpacity onPress={stopRecording}>
               {/* recording stop */}
               <Image
