@@ -2,13 +2,18 @@
 import {
   View,
   Text,
+  TextInput,
   SafeAreaView,
   Image,
   ScrollView,
   TouchableOpacity,
   Alert,
+  Linking,
+  ToastAndroid,
 } from 'react-native';
+import Clipboard from '@react-native-clipboard/clipboard';
 import React, {useEffect, useRef, useState} from 'react';
+import RNFS from 'react-native-fs';
 import {
   widthPercentageToDP as wp,
   heightPercentageToDP as hp,
@@ -25,6 +30,8 @@ export default function HomeScreen() {
   const [speaking, setSpeaking] = useState(false);
   const [result, setResult] = useState('');
   const [loading, setLoading] = useState(false);
+  const [showInput, setShowInput] = useState(false);
+  const [textValue, setTextValue] = useState('');
   const ScrollViewRef = useRef();
 
   //handlers
@@ -32,7 +39,7 @@ export default function HomeScreen() {
     console.log('speech start handler: ', e);
   };
 
-  const speechResultsHandler = e => {
+  const speechResultsHandler = async e => {
     console.log('voice event:', e.value);
     const text = e.value[0];
     setResult(text);
@@ -42,11 +49,7 @@ export default function HomeScreen() {
   const speechEndHandler = e => {
     setRecording(false);
     console.log('speech end handler: ', e);
-    const text = e.value[0];
-    setResult(text);
   };
-
-  // console.log('result',result);
 
   const speechErrorHandler = e => {
     console.log('speech error handler: ', e);
@@ -62,7 +65,7 @@ export default function HomeScreen() {
     setRecording(true);
     Tts.stop();
     try {
-      await Voice.start('en-US');
+      await Voice.start('en-GB');
     } catch (error) {
       console.log('voice recording error: ', error.message);
     }
@@ -88,7 +91,7 @@ export default function HomeScreen() {
       setLoading(true);
 
       apiCall(text.trim(), newMessages).then(res => {
-        // console.log('Data: ', res);
+        console.log('Data: ', res);
         setLoading(false);
         if (res.success) {
           setMessages([...res.data]);
@@ -102,15 +105,21 @@ export default function HomeScreen() {
     }
   };
 
-  const startTextToSpeech = message => {
+  const startTextToSpeech = async message => {
     if (!message.content.includes('https')) {
       setSpeaking(true);
+      let languageCode = 'en-GB';
+      if (/[\u0400-\u04FF]/.test(message.content)) {
+        languageCode = 'ru-RU';
+      }
+      console.log('language code: ', languageCode);
       Tts.speak(message.content, {
         androidParams: {
-          KEY_PARAM_PAN: 0.5,
+          KEY_PARAM_PAN: 1,
           KEY_PARAM_VOLUME: 1,
-          KEY_PARAM_STREAM: 'STREAM_VOICE_CALL',
+          KEY_PARAM_STREAM: 'STREAM_MUSIC',
         },
+        language: languageCode,
       });
     }
   };
@@ -127,6 +136,84 @@ export default function HomeScreen() {
   };
 
   console.log('Result: ', result);
+
+  const handleImagePress = imageUrl => {
+    Alert.alert(
+      'Choose an Option:',
+      '',
+      [
+        {
+          text: 'Open in Browser',
+          onPress: () => Linking.openURL(imageUrl),
+        },
+        {
+          text: 'Download',
+          onPress: async () => {
+            const {DownloadDirectoryPath} = RNFS;
+            const filename = imageUrl.split('/').pop().split('?')[0];
+            const downloadDest = `${DownloadDirectoryPath}/${filename}.png`;
+
+            const downloadFile = RNFS.downloadFile({
+              fromUrl: imageUrl,
+              toFile: downloadDest,
+              progress: res => {
+                const progress = (res.bytesWritten / res.contentLength) * 100;
+                console.log(`Download Progress: ${progress.toFixed(2)}%`);
+              },
+            });
+
+            try {
+              const response = await downloadFile.promise;
+
+              if (response.statusCode === 200) {
+                ToastAndroid.show(
+                  'Image downloaded successfully.',
+                  ToastAndroid.SHORT,
+                );
+              } else {
+                throw new Error(
+                  `Failed to download image. Status code: ${response.statusCode}`,
+                );
+              }
+            } catch (error) {
+              ToastAndroid.show(
+                'Failed to download image.',
+                ToastAndroid.SHORT,
+              );
+              console.error('Download Error:', error.message);
+            }
+          },
+        },
+        {text: 'Cancel', style: 'cancel'},
+      ],
+      {cancelable: true},
+    );
+  };
+
+  const handleTextCopy = text => {
+    Clipboard.setString(text);
+    ToastAndroid.show('Text copied to clipboard', ToastAndroid.SHORT);
+  };
+
+  const showInputField = () => {
+    setShowInput(true);
+    setSpeaking(false);
+    setRecording(false);
+  };
+
+  const sendText = () => {
+    if (textValue.trim().length > 0) {
+      setResult(textValue);
+      fetchResponse(textValue);
+      setTextValue('');
+      setShowInput(false);
+    }
+  };
+
+  const changeToVoice = () => {
+    setTextValue('');
+    setShowInput(false);
+  };
 
   useEffect(() => {
     //voice recording
@@ -152,7 +239,7 @@ export default function HomeScreen() {
   }, []);
 
   return (
-    <View className="flex-1 bg-white py-2 pb-3">
+    <View className="flex-1 bg-[#010919] py-2 pb-3">
       <SafeAreaView className="flex-1 flex mx-5 relative">
         {/*Bot icon*/}
         <View className="flex-row justify-center">
@@ -166,12 +253,12 @@ export default function HomeScreen() {
           <View className="space-y-2 flex-1">
             <Text
               style={{fontSize: wp(5)}}
-              className="text-gray-700 font-semibold ml-1">
+              className="text-white font-semibold ml-1">
               Assistant
             </Text>
             <View
               style={{height: hp(66)}}
-              className="bg-neutral-200 rounded-3xl p-4">
+              className="bg-gray-800 rounded-3xl p-4">
               <ScrollView
                 ref={ScrollViewRef}
                 bounces={false}
@@ -181,7 +268,10 @@ export default function HomeScreen() {
                   if (message.role === 'assistant') {
                     if (message.content.includes('https')) {
                       return (
-                        <View key={index} className="flex-row justify-start">
+                        <TouchableOpacity
+                          key={index}
+                          onPress={() => handleImagePress(message.content)}
+                          className="flex-row justify-start">
                           <View className="flex bg-emerald-100 rounded-2xl rounded-tl-none p-1.5">
                             <Image
                               source={{uri: message.content}}
@@ -190,31 +280,29 @@ export default function HomeScreen() {
                               resizeMode="contain"
                             />
                           </View>
-                        </View>
+                        </TouchableOpacity>
                       );
                     } else {
                       return (
-                        <View
+                        <TouchableOpacity
                           key={index}
+                          onPress={() => handleTextCopy(message.content)}
                           style={{width: wp(70)}}
-                          className="bg-emerald-100 rounded-xl rounded-tl-none p-2">
-                          <Text className="text-gray-600">
-                            {message.content}
-                          </Text>
-                        </View>
+                          className="bg-[#01A980] rounded-xl rounded-tl-none p-2">
+                          <Text className="text-white">{message.content}</Text>
+                        </TouchableOpacity>
                       );
                     }
                   } else {
                     return (
-                      <View key={index} className="flex-row justify-end">
-                        <View
-                          style={{width: wp(70)}}
-                          className="bg-white rounded-xl rounded-tr-none p-2">
-                          <Text className="text-gray-600">
-                            {message.content}
-                          </Text>
+                      <TouchableOpacity
+                        key={index}
+                        onPress={() => handleTextCopy(message.content)}
+                        className="flex-row justify-end">
+                        <View className="bg-[#394848] rounded-xl rounded-tr-none p-2 w-fit">
+                          <Text className="text-white">{message.content}</Text>
                         </View>
-                      </View>
+                      </TouchableOpacity>
                     );
                   }
                 })}
@@ -232,39 +320,65 @@ export default function HomeScreen() {
               source={require('../../assets/images/loading.gif')}
               style={{height: hp(10), width: hp(10)}}
             />
-          ) : recording ? (
-            <TouchableOpacity onPress={stopRecording}>
-              {/* recording stop */}
-              <Image
-                style={{height: hp(10), width: hp(10)}}
-                source={require('../../assets/images/voice.png')}
-                className="rounded-full"
-              />
-            </TouchableOpacity>
           ) : (
-            <TouchableOpacity onPress={startRecording}>
-              {/* recording start */}
-              <Image
-                style={{height: hp(10), width: hp(10)}}
-                source={require('../../assets/images/record.png')}
-                className="rounded-full"
-              />
-            </TouchableOpacity>
+            !showInput && (
+              <TouchableOpacity
+                onPress={recording ? stopRecording : startRecording}>
+                <Image
+                  style={{height: hp(10), width: hp(10)}}
+                  source={
+                    recording
+                      ? require('../../assets/images/voice.png')
+                      : require('../../assets/images/record.png')
+                  }
+                  className="rounded-full"
+                />
+              </TouchableOpacity>
+            )
           )}
 
-          {messages.length > 0 && (
+          {showInput && (
+            <View className="w-full flex flex-row justify-center items-center px-11">
+              <TouchableOpacity onPress={() => changeToVoice()} className="bg-neutral-700 rounded-full flex items-center justify-center px-4 mr-2">
+                <Text style={{fontSize: wp(8)}} className="text-white text-center font-extrabold mb-1.5">x</Text>
+              </TouchableOpacity>
+              <TextInput
+                value={textValue}
+                onChangeText={value => setTextValue(value)}
+                placeholder="Type your message..."
+                className="text-black pl-3 font-semibold bg-neutral-50 rounded-2xl w-full break-all"
+              />
+              <TouchableOpacity
+                onPress={() => sendText()}
+                className="bg-white rounded-full ml-2 p-1.5">
+                <Image
+                  source={require('../../assets/images/send.png')}
+                  style={{height: hp(4.5), width: hp(4.5)}}
+                />
+              </TouchableOpacity>
+            </View>
+          )}
+
+          {messages.length > 0 && !showInput && (
             <TouchableOpacity
               onPress={clear}
               className="bg-neutral-300 rounded-3xl py-3 px-4 absolute right-8">
               <Text className="text-white font-semibold">Clear</Text>
             </TouchableOpacity>
           )}
-
           {speaking && (
             <TouchableOpacity
               onPress={stopSpeaking}
               className="bg-red-400 rounded-3xl py-3 px-4 absolute left-8">
               <Text className="text-white font-semibold">Stop</Text>
+            </TouchableOpacity>
+          )}
+
+          {!showInput === !speaking && (
+            <TouchableOpacity
+              onPress={showInputField}
+              className="bg-emerald-500 rounded-3xl py-3 px-4 absolute left-8">
+              <Text className="text-white font-bold">Text</Text>
             </TouchableOpacity>
           )}
         </View>
