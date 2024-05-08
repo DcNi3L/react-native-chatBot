@@ -23,6 +23,9 @@ import Features from '../components/Features';
 import Voice from '@react-native-community/voice';
 import Tts from 'react-native-tts';
 import {apiCall} from '../api/OpenAI';
+import { ArrowRightStartOnRectangleIcon } from 'react-native-heroicons/solid';
+import { signOut } from 'firebase/auth';
+import { auth } from '../config/firebase';
 
 export default function HomeScreen() {
   const [messages, setMessages] = useState([]);
@@ -65,7 +68,7 @@ export default function HomeScreen() {
     setRecording(true);
     Tts.stop();
     try {
-      await Voice.start('en-GB');
+      await Voice.start('en-US');
     } catch (error) {
       console.log('voice recording error: ', error.message);
     }
@@ -108,7 +111,7 @@ export default function HomeScreen() {
   const startTextToSpeech = async message => {
     if (!message.content.includes('https')) {
       setSpeaking(true);
-      let languageCode = 'en-GB';
+      let languageCode = 'en-US';
       if (/[\u0400-\u04FF]/.test(message.content)) {
         languageCode = 'ru-RU';
       }
@@ -215,6 +218,11 @@ export default function HomeScreen() {
     setShowInput(false);
   };
 
+  //firebase logout
+  const handleLogout = async () => {
+    await signOut(auth);
+  };
+
   useEffect(() => {
     //voice recording
     Voice.onSpeechStart = speechStartHandler;
@@ -241,6 +249,11 @@ export default function HomeScreen() {
   return (
     <View className="flex-1 bg-[#010919] py-2 pb-3">
       <SafeAreaView className="flex-1 flex mx-5 relative">
+        <View className="flex-row justify-end px-1">
+          <TouchableOpacity onPress={handleLogout}>
+            <ArrowRightStartOnRectangleIcon size="30" color="white" />
+          </TouchableOpacity>
+        </View>
         {/*Bot icon*/}
         <View className="flex-row justify-center">
           <Image
@@ -257,7 +270,7 @@ export default function HomeScreen() {
               Assistant
             </Text>
             <View
-              style={{height: hp(66)}}
+              style={{height: hp(63)}}
               className="bg-gray-800 rounded-3xl p-4">
               <ScrollView
                 ref={ScrollViewRef}
@@ -346,7 +359,7 @@ export default function HomeScreen() {
                 value={textValue}
                 onChangeText={value => setTextValue(value)}
                 placeholder="Type your message..."
-                className="text-black pl-3 font-semibold bg-neutral-50 rounded-2xl w-full break-all"
+                className="text-black pl-3 font-semibold placeholder:text-gray-500 bg-neutral-50 rounded-2xl w-full break-all"
               />
               <TouchableOpacity
                 onPress={() => sendText()}

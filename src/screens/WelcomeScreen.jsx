@@ -29,7 +29,7 @@ export default function WelcomeScreen() {
           style={{height: wp(75), width: wp(75)}}
         />
       </View>
-      <TouchableOpacity onPress={() => navigation.navigate('Home')} className="bg-emerald-600 mx-5 p-4 rounded-2xl">
+      <TouchableOpacity onPress={() => navigation.navigate('Login')} className="bg-emerald-600 mx-5 p-4 rounded-2xl">
         <Text
           style={{fontSize: wp(6)}}
           className="font-bold text-center text-white">
