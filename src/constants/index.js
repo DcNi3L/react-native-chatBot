@@ -1,5 +1,5 @@
 /* eslint-disable prettier/prettier */
-export const apiKey = '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';
+export const apiKey = 'YOUR_API_KEY';
 
 export const dummyMessages = [
   {

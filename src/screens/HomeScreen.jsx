@@ -23,9 +23,9 @@ import Features from '../components/Features';
 import Voice from '@react-native-community/voice';
 import Tts from 'react-native-tts';
 import {apiCall} from '../api/OpenAI';
-import { ArrowRightStartOnRectangleIcon } from 'react-native-heroicons/solid';
-import { signOut } from 'firebase/auth';
-import { auth } from '../config/firebase';
+import {UserCircleIcon} from 'react-native-heroicons/solid';
+import {useNavigation} from '@react-navigation/native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 export default function HomeScreen() {
   const [messages, setMessages] = useState([]);
@@ -59,8 +59,9 @@ export default function HomeScreen() {
   };
 
   //functions for buttons
-  const clear = () => {
+  const clear = async () => {
     setMessages([]);
+    await AsyncStorage.removeItem('messages');
     Tts.stop();
   };
 
@@ -93,7 +94,7 @@ export default function HomeScreen() {
       updateScrollView();
       setLoading(true);
 
-      apiCall(text.trim(), newMessages).then(res => {
+      apiCall(text.trim(), newMessages).then(async res => {
         console.log('Data: ', res);
         setLoading(false);
         if (res.success) {
@@ -101,6 +102,7 @@ export default function HomeScreen() {
           updateScrollView();
           setResult('');
           startTextToSpeech(res.data[res.data.length - 1]);
+          await AsyncStorage.setItem('messages', JSON.stringify(res.data));
         } else {
           Alert.alert('Error: ', res.msg);
         }
@@ -137,8 +139,6 @@ export default function HomeScreen() {
     Tts.stop();
     setSpeaking(false);
   };
-
-  console.log('Result: ', result);
 
   const handleImagePress = imageUrl => {
     Alert.alert(
@@ -218,12 +218,19 @@ export default function HomeScreen() {
     setShowInput(false);
   };
 
-  //firebase logout
-  const handleLogout = async () => {
-    await signOut(auth);
+  const getMessagesFromStorage = async () => {
+    const storedMessages = await AsyncStorage.getItem('messages');
+    if (storedMessages) {
+      setMessages(JSON.parse(storedMessages));
+    } else {
+      setMessages([]);
+    }
   };
 
+  const navigation = useNavigation();
+
   useEffect(() => {
+    getMessagesFromStorage();
     //voice recording
     Voice.onSpeechStart = speechStartHandler;
     Voice.onSpeechEnd = speechEndHandler;
@@ -250,8 +257,9 @@ export default function HomeScreen() {
     <View className="flex-1 bg-[#010919] py-2 pb-3">
       <SafeAreaView className="flex-1 flex mx-5 relative">
         <View className="flex-row justify-end px-1">
-          <TouchableOpacity onPress={handleLogout}>
-            <ArrowRightStartOnRectangleIcon size="30" color="white" />
+          <TouchableOpacity
+            onPress={() => navigation.navigate('Profile', {messages})}>
+            <UserCircleIcon size="40" color="white" />
           </TouchableOpacity>
         </View>
         {/*Bot icon*/}
@@ -352,8 +360,14 @@ export default function HomeScreen() {
 
           {showInput && (
             <View className="w-full flex flex-row justify-center items-center px-11">
-              <TouchableOpacity onPress={() => changeToVoice()} className="bg-neutral-700 rounded-full flex items-center justify-center px-4 mr-2">
-                <Text style={{fontSize: wp(8)}} className="text-white text-center font-extrabold mb-1.5">x</Text>
+              <TouchableOpacity
+                onPress={() => changeToVoice()}
+                className="bg-neutral-700 rounded-full flex items-center justify-center px-4 mr-2">
+                <Text
+                  style={{fontSize: wp(8)}}
+                  className="text-white text-center font-extrabold mb-1.5">
+                  x
+                </Text>
               </TouchableOpacity>
               <TextInput
                 value={textValue}
